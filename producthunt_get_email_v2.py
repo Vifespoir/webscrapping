@@ -1,20 +1,21 @@
 #!python3
 """This script will call ProductHunt API and gather information.
 
-It'll collect Maker names from a specific topic by looping through all the
+It'll collect Maker names and from a specific topic by looping through all the
 posts of this topic.
 """
 
 # importing libraries
 import urllib.request
 import urllib.parse
-import time
-import os
+import time  # for sleep function
+import os  # to create output in the script directory
 import sys
 import csv
-import tldextract
+import tldextract  # to extract main domain address
 import pprint
 import json
+import getpass  # hide bearer token in the console
 
 
 def topic_id_finder(topic_str,
@@ -65,9 +66,8 @@ def topic_id_finder(topic_str,
 
     else:  # topic found
         pp = pprint.PrettyPrinter(indent=4)  # setting up pprint
-        # print the description of the topic
         print()
-        try:
+        try:  # print the description of the topic, prevent charmap exceptions
             pp.pprint(ph_iterator(
                 ph_base_url, 'topics/'+str(topic_id))['topic'])
         except UnicodeEncodeError:
@@ -95,8 +95,7 @@ def ph_iterator(ph_base_url, endpoint, paginator='', per_page='&per_page=50'):
         open_req = urllib.request.urlopen(req).read().decode('utf-8')
         resp = json.loads(open_req)
     except:
-        print(paginated_url, '\n', '\n'.join(
-            [k + ': ' + v for k, v in ph_headers.items()]))
+        print('Wrong request to: ', paginated_url)
 
     time.sleep(0.2)  # sleep 0.2 second between two requests
 
@@ -317,7 +316,7 @@ if __name__ == '__main__':
         'Host': "api.producthunt.com"}
     # prompting the API token for ProductHunt, looping until it works
     while True:
-        ph_token = input('Enter your ProductHunter API token: ')
+        ph_token = getpass.getpass('Enter your ProductHunter API token: ')
         # adding bearer as requested in ProductHunt API doc
         ph_headers['Authorization'] = "Bearer " + ph_token
         # testing endpoint
