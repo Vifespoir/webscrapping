@@ -34,8 +34,7 @@ def topic_id_finder(topic_str,
     ph_topics = ph_iterator(
                 ph_base_url=ph_base_url,
                 endpoint=endpoint,
-                paginator=paginator
-                )
+                paginator=paginator)
 
     topics.extend(ph_topics['topics'])  # add topics to the list
     max_id = max([topic['id'] for topic in topics])  # max_id from topic ids
