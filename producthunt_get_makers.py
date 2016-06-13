@@ -6,59 +6,122 @@ posts of this topic.
 """
 
 # importing libraries
-import urllib.request
-import urllib.parse
+import requests
 import time  # for sleep function
-import os  # to create output in the script directory
 import sys
 import csv
 import tldextract  # to extract main domain address
 import pprint
-import json
+import os  # to create output in the script directory
+# import time  # for sleep function
+# import os  # to create output in the script directory
+# import sys
 import getpass  # hide bearer token in the console
 
+# TO DO: keep a list of topics and ids, plus the value of the newest topic to
+# reduce API calls
 
-def topic_id_finder(topic_str,
-                    endpoint='topics/?',
-                    topics=[],
-                    topic_id=0,
-                    paginator='&newer=1',
-                    counter=0):
+
+class ProductHuntErrors(Exception):
+    """Error class for this script."""
+
+    def __init__(self, value):
+        """Initialize the class."""
+        self.value = value
+
+    def __str__(self):
+        """Return a string representation."""
+        return repr(self.value)
+
+
+class ProductHunterAPI:
+    """docstring for ProductHunterAPI."""
+
+    base_url = "https://api.producthunt.com/v1/"
+    api_token = ""
+
+    def __init__(self, params, logs, endpoint):
+        """Initialize the class."""
+        self.params = {"newer": 1,
+                       "per_page": 50}
+        self.logs = {}
+        self.endpoint = ""
+        self.full_url = generate_url()
+        self.headers = populate_headers()
+
+    def generate_url(self):
+        """Build full url from base_url and endpoint."""
+        try:
+            self.base_url + self.endpoint
+            return self
+        except UnboundLocalError:
+            raise ProductHuntErrors("No endpoint defined.")
+
+    def populate_headers(self, api_token):
+        """Add API token to the headers."""
+        self.headers = {'Accept': "application/json",
+                        'Content-Type': "application/json",
+                        'Host': "api.producthunt.com"}
+        self.headers["Authorization"] = "Bearer " + api_token
+        return self
+
+    def request(self):
+        """Make a HTTP request with the class instance parameters."""
+        req = requests.get(self.full_url,
+                           self.params,
+                           self.headers)  # request ProductHunt
+        req.raise_for_status()
+        resp = req.json()
+
+        time.sleep(0.2)  # sleep 0.2 second between two requests
+
+        return resp
+
+    def test(self):
+        """Test the class."""
+        try:
+            self.request
+        except:
+            raise ProductHuntErrors("Test unsuccessful")
+
+
+def topic_id_finder(topic_request):
     """Need a topic name (string type) as an input.
 
     It'll look up this topic within the topic list of ProductHunt,
     interating through the pages until it finds it.
     It stops on two conditions: no more pages, topic found.
     """
-    check = paginator  # initialize the loop exit marker
-    ph_topics = ph_iterator(
-                ph_base_url=ph_base_url,
-                endpoint=endpoint,
-                paginator=paginator)
+    topic_request.topic_str = input(  # get a topic string
+        'From which topic do you want to retrieve posts?    ')
+    check = topic_request.params["newer"]  # initialize the loop exit marker
 
-    topics.extend(ph_topics['topics'])  # add topics to the list
-    max_id = max([topic['id'] for topic in topics])  # max_id from topic ids
-    paginator = '&newer=' + str(max_id)
+    try:
+        topic_request.topics
+    except UnboundLocalError:
+        topic_request.topics = []
+        topic_request.topic_id = 0
+        topic_request.counter = 0
 
-    for topic in ph_topics["topics"]:  # search loop to find the topic
-        if topic["name"].lower() == topic_str.lower():
+    topics = topic_request.request()
+
+    topic_request.topics.extend(topics['topics'])  # add topics to the list
+    max_id = max([topic['id'] for topic in topic_request.topics])
+    topic_request.params["newer"] = max_id
+
+    for topic in topics["topics"]:  # search loop to find the topic
+        if topic["name"].lower() == topic_request.topic_str.lower():
             topic_id = topic["id"]
             break  # break the loop when topic_id is found
 
     # recursive loop which stops on two conditions: no more results, ID found
     if topic_id == 0:
-        counter += 1  # inform of the progress with a counter
-        sys.stdout.write('\rNot in page {:3}'.format(counter))
+        topic_request.counter += 1  # inform of the progress with a counter
+        sys.stdout.write('\rNot in page {:3}'.format(topic_request.counter))
 
-        return topic_id_finder(
-            topic_str=topic_str,
-            endpoint=endpoint,
-            topics=topics,
-            topic_id=topic_id,
-            paginator=paginator,
-            counter=counter)
+        return topic_id_finder(topic_request)
 
-    elif paginator == check:  # no more results
+    elif topic_request.params["newer"] == check:  # no more results
         print('Topic not found, sorry.')
 
         return None  # return None as topic ID
@@ -67,81 +130,54 @@ def topic_id_finder(topic_str,
         pp = pprint.PrettyPrinter(indent=4)  # setting up pprint
         print()
         try:  # print the description of the topic, prevent charmap exceptions
-            pp.pprint(ph_iterator(
-                ph_base_url, 'topics/'+str(topic_id))['topic'])
+            pp.pprint(topics['topic'])
         except UnicodeEncodeError:
             pass
 
         return topic_id
 
 
-def ph_iterator(ph_base_url, endpoint, paginator='', per_page='&per_page=50'):
-    """Format a ProductHunt URL for an API call with or without pagination.
-
-    It sends a request to the URL and get the response.
-    It opens, reads and convert to a json file the response.
-    Finally it returns the response.
-    """
-    # paginate the url with the highest topic id from previous page
-    paginated_url = ph_base_url + endpoint + str(paginator) + per_page
-
-    try:  # catch malformated URLs
-        req = urllib.request.Request(
-                        paginated_url,
-                        headers=ph_headers
-                        )  # request ProductHunt
-
-        open_req = urllib.request.urlopen(req).read().decode('utf-8')
-        resp = json.loads(open_req)
-    except:
-        print('Wrong request to: ', paginated_url)
-
-    time.sleep(0.2)  # sleep 0.2 second between two requests
-
-    return resp
-
-
-def get_posts(endpoint, posts=[], paginator='&newer=1', counter=0):
+def get_posts(posts_request):
     """Fetch all the posts of a determined topic on ProductHunt.
 
     It paginates using the newer argument starting from the first post.
     It stops when the paginator can't be incremented anymore.
     It returns all the posts and the number of posts.
     """
-    check = paginator
+    check = posts_request.params["newer"]  # initialize the loop exit marker
 
-    ph_posts = ph_iterator(
-                    ph_base_url,
-                    endpoint,
-                    paginator
-                    )  # get 50 posts
+    try:
+        posts_request.posts
+    except UnboundLocalError:
+        posts_request.posts = []
+        posts_request.counter = 0
 
-    posts.extend(ph_posts['posts'])  # add them to the list
-    max_id = max([post['id'] for post in posts])  # get max_id from posts list
-    paginator = '&newer=' + str(max_id)
+    ph_posts = posts_request.request()  # get 50 posts
+    posts_request.posts.extend(ph_posts['posts'])  # add them to the list
 
-    sys.stdout.write('\rposts: {}'.format(counter))  # progress bar
+    max_id = max([post['id'] for post in posts_request.posts])
+    posts_request.params["newer"] = max_id
+
+    sys.stdout.write('\rposts: {}'.format(posts_request.counter))  # progress
     # recursively call the function, stop when no more results
-    if paginator != check:
-        counter += len(ph_posts['posts'])  # count the number of posts fetched
+    if posts_request.params["newer"] != check:
+        posts_request.counter += len(ph_posts['posts'])  # count fetched posts
 
-        return get_posts(
-            endpoint=endpoint,
-            posts=posts,
-            paginator=paginator,
-            counter=counter)
+        return get_posts(posts_request)
 
     else:  # when no more results return the posts
         print('\nPost Fetching finished!')
-        return posts, len(posts)
+        return posts_request.posts, len(posts_request.posts)
 
 
-def data_with_makers_generator(posts, extracted_data={}):
+def data_with_makers_generator(posts_request):
     """Filter the posts based on maker_inside.
 
     If there is no maker the post is ignored and the error is counted.
     """
-    for post in posts:  # loop through the posts
+    extracted_data = {}
+
+    for post in posts_request.posts:  # loop through the posts
         extracted_data['name'] = post['name']  # get company name
         extracted_data['url'] = url_extractor(post['redirect_url'])
         if post['maker_inside']:  # check for makers
@@ -165,15 +201,14 @@ def url_extractor(redirect_url):
     headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_4) A\
     ppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36'}
     # find final url
-    req = urllib.request.Request(redirect_url, headers=headers)
+    req = requests.get(redirect_url, headers=headers)
 
     try:  # capture URL Errors
-        resp = urllib.request.urlopen(req)
-        url_redirected = resp.geturl()
+        url_redirected = req.url
         extracted_url = tldextract.extract(url_redirected).registered_domain
-    except urllib.error.HTTPError as e:
+    except requests.error.HTTPError as e:
         extracted_url = e  # set the error as the extracted_url
-    except urllib.error.URLError as e:
+    except requests.error.URLError as e:
         extracted_url = e  # set the error as the extracted_urlUn
 
     return extracted_url
@@ -244,7 +279,7 @@ def data_formatter(dataset, error):
         return dataset_edit, error
 
 
-def csv_writer(data, file_location):
+def csv_writer(data, file_location, nb_of_posts):
     """Write the data into a file. Show the progression.
 
     Work on a definite set of fieldnames. They must match with the one in
@@ -306,41 +341,32 @@ def csv_writer(data, file_location):
     # close the file
     csvfile.close()
 
+
 if __name__ == '__main__':
-    # setting up API calls
-    ph_base_url = "https://api.producthunt.com/v1/"
-    ph_headers = {
-        'Accept': "application/json",
-        'Content-Type': "application/json",
-        'Host': "api.producthunt.com"}
     # prompting the API token for ProductHunt, looping until it works
     while True:
-        ph_token = getpass.getpass('Enter your ProductHunter API token: ')
-        # adding bearer as requested in ProductHunt API doc
-        ph_headers['Authorization'] = "Bearer " + ph_token
+        ProductHunterAPI.api_token = "Bearer " + getpass.getpass(
+            'Enter your ProductHunter API token: ')
         # testing endpoint
-        endpoint = 'posts?newer=1'
+        test_request = ProductHunterAPI(endpoint='posts?newer=1')
         try:
-            # sending a request to ProductHunt
-            ph_iterator(ph_base_url, endpoint, per_page='&per_page=1')
-            # exit the loop if successful
-            break
+            test_request.test()
+            break  # exit the loop if successful
         except:
             print('Wrong token, please try again.')
-
-    # get a topic string
-    topic_str = input('From which topic do you want to retrieve posts?    ')
     # get topic id from the topic string
-    topic_id = topic_id_finder(topic_str)
+    topic_request = ProductHunterAPI(endpoint='topics/?')
     # get the posts from topic filtered posts endpoint
-    endpoint = 'posts/all?search[topic]=' + str(topic_id)
-    posts = get_posts(endpoint)[0]
-    nb_of_posts = len(posts)
+    posts_request = ProductHunterAPI(
+        endpoint='posts/all?search[topic]=' + str(topic_request.topic_id))
+    posts = posts_request.json()
 
     data = data_with_makers_generator(posts)
 
     # setting up current working directory and csv file location
     cwd = os.getcwd()
-    file_location = cwd + '/' + topic_str + '.csv'
+    file_location = cwd + '/' + topic_request.topic_str + '.csv'
+
+    nb_of_posts = len(posts_request.posts)
 
     csv_writer(data, file_location)

@@ -8,15 +8,12 @@ last name and a domain name.
 # importing libraries
 import requests
 import pprint
-import time  # for sleep function
-import os  # to create output in the script directory
-import sys
 import shelve
 import re
 
 
 def eh_get_email(url, params, logs):
-    """Calls email hunter, return an email.
+    """Call email hunter, return an email.
 
     Requires the base EmailHunter url & the parameters to be added to the url.
     Additionally requires logs to avoid to call twice the API with the same
