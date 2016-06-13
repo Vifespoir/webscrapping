@@ -36,40 +36,31 @@ class ProductHuntErrors(Exception):
 
 class ProductHunterAPI:
     """docstring for ProductHunterAPI."""
-
-    base_url = "https://api.producthunt.com/v1/"
     api_token = ""
+    base_url = "https://api.producthunt.com/v1/"
+    headers = {'Accept': "application/json",
+               'Content-Type': "application/json",
+               'Host': "api.producthunt.com"}
 
-    def __init__(self, params, logs, endpoint):
+    def __init__(self, endpoint):
         """Initialize the class."""
         self.params = {"newer": 1,
                        "per_page": 50}
-        self.logs = {}
-        self.endpoint = ""
-        self.full_url = generate_url()
-        self.headers = populate_headers()
+        self.endpoint = endpoint
+        self.full_url = ProductHunterAPI.generate_url(self.endpoint)
 
-    def generate_url(self):
+    def generate_url(endpoint):
         """Build full url from base_url and endpoint."""
         try:
-            self.base_url + self.endpoint
-            return self
+            return ProductHunterAPI.base_url + endpoint
         except UnboundLocalError:
             raise ProductHuntErrors("No endpoint defined.")
-
-    def populate_headers(self, api_token):
-        """Add API token to the headers."""
-        self.headers = {'Accept': "application/json",
-                        'Content-Type': "application/json",
-                        'Host': "api.producthunt.com"}
-        self.headers["Authorization"] = "Bearer " + api_token
-        return self
 
     def request(self):
         """Make a HTTP request with the class instance parameters."""
         req = requests.get(self.full_url,
-                           self.params,
-                           self.headers)  # request ProductHunt
+                           params=self.params,
+                           headers=self.headers)  # request ProductHunt
         req.raise_for_status()
         resp = req.json()
 
@@ -85,20 +76,18 @@ class ProductHunterAPI:
             raise ProductHuntErrors("Test unsuccessful")
 
 
-def topic_id_finder(topic_request):
+def get_topics(topic_request):
     """Need a topic name (string type) as an input.
 
     It'll look up this topic within the topic list of ProductHunt,
     interating through the pages until it finds it.
     It stops on two conditions: no more pages, topic found.
     """
-    topic_request.topic_str = input(  # get a topic string
-        'From which topic do you want to retrieve posts?    ')
     check = topic_request.params["newer"]  # initialize the loop exit marker
 
     try:
         topic_request.topics
-    except UnboundLocalError:
+    except AttributeError:
         topic_request.topics = []
         topic_request.topic_id = 0
         topic_request.counter = 0
@@ -111,15 +100,15 @@ def topic_id_finder(topic_request):
 
     for topic in topics["topics"]:  # search loop to find the topic
         if topic["name"].lower() == topic_request.topic_str.lower():
-            topic_id = topic["id"]
+            topic_request.topic_id = topic["id"]
             break  # break the loop when topic_id is found
 
     # recursive loop which stops on two conditions: no more results, ID found
-    if topic_id == 0:
+    if topic_request.topic_id == 0:
         topic_request.counter += 1  # inform of the progress with a counter
         sys.stdout.write('\rNot in page {:3}'.format(topic_request.counter))
 
-        return topic_id_finder(topic_request)
+        return get_topics(topic_request)
 
     elif topic_request.params["newer"] == check:  # no more results
         print('Topic not found, sorry.')
@@ -130,11 +119,11 @@ def topic_id_finder(topic_request):
         pp = pprint.PrettyPrinter(indent=4)  # setting up pprint
         print()
         try:  # print the description of the topic, prevent charmap exceptions
-            pp.pprint(topics['topic'])
+            pp.pprint(topic)
         except UnicodeEncodeError:
             pass
 
-        return topic_id
+        return topic_request.topic_id
 
 
 def get_posts(posts_request):
@@ -148,7 +137,7 @@ def get_posts(posts_request):
 
     try:
         posts_request.posts
-    except UnboundLocalError:
+    except AttributeError:
         posts_request.posts = []
         posts_request.counter = 0
 
@@ -345,8 +334,9 @@ def csv_writer(data, file_location, nb_of_posts):
 if __name__ == '__main__':
     # prompting the API token for ProductHunt, looping until it works
     while True:
-        ProductHunterAPI.api_token = "Bearer " + getpass.getpass(
+        api_token = "Bearer " + getpass.getpass(
             'Enter your ProductHunter API token: ')
+        ProductHunterAPI.headers["Authorization"] = api_token
         # testing endpoint
         test_request = ProductHunterAPI(endpoint='posts?newer=1')
         try:
@@ -356,10 +346,14 @@ if __name__ == '__main__':
             print('Wrong token, please try again.')
     # get topic id from the topic string
     topic_request = ProductHunterAPI(endpoint='topics/?')
-    # get the posts from topic filtered posts endpoint
-    posts_request = ProductHunterAPI(
+    topic_request.topic_str = input(  # get a topic string
+        'From which topic do you want to retrieve posts?    ')
+    get_topics(topic_request)
+    posts_request = ProductHunterAPI(  # get posts from specific topic endpoint
         endpoint='posts/all?search[topic]=' + str(topic_request.topic_id))
-    posts = posts_request.json()
+
+    get_posts(posts_request)
+    posts = posts_request.request.json()
 
     data = data_with_makers_generator(posts)
 
