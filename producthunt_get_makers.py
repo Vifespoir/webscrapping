@@ -13,9 +13,6 @@ import csv
 import tldextract  # to extract main domain address
 import pprint
 import os  # to create output in the script directory
-# import time  # for sleep function
-# import os  # to create output in the script directory
-# import sys
 import getpass  # hide bearer token in the console
 
 # TO DO: keep a list of topics and ids, plus the value of the newest topic to
@@ -36,6 +33,7 @@ class ProductHuntErrors(Exception):
 
 class ProductHunterAPI:
     """docstring for ProductHunterAPI."""
+
     api_token = ""
     base_url = "https://api.producthunt.com/v1/"
     headers = {'Accept': "application/json",
@@ -63,9 +61,7 @@ class ProductHunterAPI:
                            headers=self.headers)  # request ProductHunt
         req.raise_for_status()
         resp = req.json()
-
         time.sleep(0.2)  # sleep 0.2 second between two requests
-
         return resp
 
     def test(self):
@@ -77,12 +73,7 @@ class ProductHunterAPI:
 
 
 def get_topics(topic_request):
-    """Need a topic name (string type) as an input.
-
-    It'll look up this topic within the topic list of ProductHunt,
-    interating through the pages until it finds it.
-    It stops on two conditions: no more pages, topic found.
-    """
+    """Look up a ProductHunt for a topic and return its id."""
     check = topic_request.params["newer"]  # initialize the loop exit marker
 
     try:
@@ -93,8 +84,7 @@ def get_topics(topic_request):
         topic_request.counter = 0
 
     topics = topic_request.request()
-
-    topic_request.topics.extend(topics['topics'])  # add topics to the list
+    topic_request.topics.extend(topics['topics'])
     max_id = max([topic['id'] for topic in topic_request.topics])
     topic_request.params["newer"] = max_id
 
@@ -107,12 +97,10 @@ def get_topics(topic_request):
     if topic_request.topic_id == 0:
         topic_request.counter += 1  # inform of the progress with a counter
         sys.stdout.write('\rNot in page {:3}'.format(topic_request.counter))
-
         return get_topics(topic_request)
 
     elif topic_request.params["newer"] == check:  # no more results
         print('Topic not found, sorry.')
-
         return None  # return None as topic ID
 
     else:  # topic found
@@ -122,17 +110,11 @@ def get_topics(topic_request):
             pp.pprint(topic)
         except UnicodeEncodeError:
             pass
-
         return topic_request.topic_id
 
 
 def get_posts(posts_request):
-    """Fetch all the posts of a determined topic on ProductHunt.
-
-    It paginates using the newer argument starting from the first post.
-    It stops when the paginator can't be incremented anymore.
-    It returns all the posts and the number of posts.
-    """
+    """Look up a topic and fetch all posts from this topic."""
     check = posts_request.params["newer"]  # initialize the loop exit marker
 
     try:
@@ -143,7 +125,6 @@ def get_posts(posts_request):
 
     ph_posts = posts_request.request()  # get 50 posts
     posts_request.posts.extend(ph_posts['posts'])  # add them to the list
-
     max_id = max([post['id'] for post in posts_request.posts])
     posts_request.params["newer"] = max_id
 
@@ -151,46 +132,33 @@ def get_posts(posts_request):
     # recursively call the function, stop when no more results
     if posts_request.params["newer"] != check:
         posts_request.counter += len(ph_posts['posts'])  # count fetched posts
-
         return get_posts(posts_request)
 
     else:  # when no more results return the posts
         print('\nPost Fetching finished!')
-        return posts_request.posts, len(posts_request.posts)
 
 
-def data_with_makers_generator(posts_request):
-    """Filter the posts based on maker_inside.
-
-    If there is no maker the post is ignored and the error is counted.
-    """
+def data_with_makers_generator(posts):
+    """Filter the posts based on maker_inside, ignore post with no maker."""
     extracted_data = {}
 
-    for post in posts_request.posts:  # loop through the posts
+    for post in posts:  # loop through the posts
         extracted_data['name'] = post['name']  # get company name
         extracted_data['url'] = url_extractor(post['redirect_url'])
         if post['maker_inside']:  # check for makers
             extracted_data['makers'] = post['makers']
-
             yield extracted_data, 0  # yield makers, 0 error
 
         else:
-
             yield extracted_data, 1  # yield None for no makers, 1 error
 
 
 def url_extractor(redirect_url):
-    """Extract final url from redirect url.
-
-    ProductHunt only mention redirect_url in its post response.
-    This function call the link and follow it until it finds the target URL.
-    Finally it processes the target URL to extract the domain.
-    """
+    """Extract final url from redirect url."""
     # set headers to a browser value
     headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_4) A\
     ppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36'}
-    # find final url
-    req = requests.get(redirect_url, headers=headers)
+    req = requests.get(redirect_url, headers=headers)  # find final url
 
     try:  # capture URL Errors
         url_redirected = req.url
@@ -269,98 +237,68 @@ def data_formatter(dataset, error):
 
 
 def csv_writer(data, file_location, nb_of_posts):
-    """Write the data into a file. Show the progression.
-
-    Work on a definite set of fieldnames. They must match with the one in
-    data_formatter.
-    """
-    # counter to show the progress
-    counter = 0
-    # creating a dictionary for error log (used in data_formatter function)
-    error = {}
-
+    """Write the data into a file. Show the progression."""
+    counter = 0  # counter to show the progress
+    error = {}  # creating dictionary for error log (used in data_formatter())
     print('Creating csv file at the script root: ' + file_location,
           'with: \'w\' privileges')
-
     csvfile = open(file_location, 'w', newline='')
-
-    # fieldnames they match the one in data_formatter
-    fieldnames = ['name',
+    fieldnames = ['name',  # fieldnames they match the one in data_formatter
                   'url',
                   'maker',
                   'maker lastname',
                   'headline',
                   'completeness']
+    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)  # set the writer
+    writer.writeheader()  # write the headers
+    posts_without_makers = 0  # set variable to track posts without markers
 
-    # set the writer, write the headers
-    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-    writer.writeheader()
-
-    # set variable to track posts without markers
-    posts_without_makers = 0
-
-    # loop though the data
-    for dataset in data:
-        # increment post without marker when it happens
-        posts_without_makers += dataset[1]
-        # catch empty dataset error
-        try:
+    for dataset in data:  # loop though the data
+        try:  # catch empty dataset error
             dataset is not None
             dataset = dataset[0]
-        except:
-            pass
-        # increment the progress
-        counter += 1
-        # format the dataset before writing it
-        dataset_edit, error = data_formatter(dataset, error)
+        except UnboundLocalError:
+            posts_without_makers += dataset[1]  # increment post without marker
+        counter += 1  # increment the progress
+        dataset_edit, error = data_formatter(dataset, error)  # format dataset
         writer.writerow(dataset_edit)
-        # progress
-        sys.stdout.write(
-            '\rProgress: {:.2f}%'.format((float(counter)/nb_of_posts)*100)
-            )
-    # print the data_formatter error log
+
+        sys.stdout.write(  # progress
+            '\rProgress: {:.2f}%'.format((float(counter)/nb_of_posts)*100))
+
     error_count = 1
-    for e in error:
+    for e in error:  # data_formatter error log
         print('\rERROR {}\n{}\nNumber of occurence: {}'
               .format(error_count, e, error[e]))
         error_count += 1
-    # print the no makers error
+
     print('\rERROR {}\nposts without makers\nNumber of occurence: {}'
-          .format(error_count, posts_without_makers))
-    # close the file
-    csvfile.close()
+          .format(error_count, posts_without_makers))  # no makers error
+    csvfile.close()  # close the file
 
 
 if __name__ == '__main__':
-    # prompting the API token for ProductHunt, looping until it works
-    while True:
+    while True:  # prompting API token for ProductHunt, looping until it works
         api_token = "Bearer " + getpass.getpass(
             'Enter your ProductHunter API token: ')
         ProductHunterAPI.headers["Authorization"] = api_token
-        # testing endpoint
         test_request = ProductHunterAPI(endpoint='posts?newer=1')
-        try:
+
+        try:  # testing endpoint
             test_request.test()
             break  # exit the loop if successful
         except:
             print('Wrong token, please try again.')
-    # get topic id from the topic string
+
     topic_request = ProductHunterAPI(endpoint='topics/?')
     topic_request.topic_str = input(  # get a topic string
         'From which topic do you want to retrieve posts?    ')
     get_topics(topic_request)
     posts_request = ProductHunterAPI(  # get posts from specific topic endpoint
         endpoint='posts/all?search[topic]=' + str(topic_request.topic_id))
-
     get_posts(posts_request)
-    posts = posts_request.request.json()
-
-    data = data_with_makers_generator(posts)
-
-    # setting up current working directory and csv file location
-    cwd = os.getcwd()
+    # format the data for writing
+    data = data_with_makers_generator(posts_request.posts)
+    cwd = os.getcwd()  # getting current working directory
     file_location = cwd + '/' + topic_request.topic_str + '.csv'
-
-    nb_of_posts = len(posts_request.posts)
-
-    csv_writer(data, file_location)
+    csv_writer(data, file_location, len(posts_request.posts))  # write the data
