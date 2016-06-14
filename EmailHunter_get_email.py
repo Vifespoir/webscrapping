@@ -10,28 +10,33 @@ import requests
 import pprint
 import shelve
 import re
+import shared_functions
 
 
-def eh_get_email(url, params, logs):
+def eh_get_email(person):
     """Call email hunter, return an email.
 
-    Requires the base EmailHunter url & the parameters to be added to the url.
+    Requires the base EmailHunter url & the parameters to be added to the
+    url.
     Additionally requires logs to avoid to call twice the API with the same
     parameters.
     """
+    url = person.base_url
+    params = person.params
+    logs = person.logs
     # TEST eh_params = api_params_test
-    person = check_if_call_is_unique(params=params, logs=logs)
+    person = PersonLookUpInfo.check_if_call_is_unique(
+        params=params, logs=logs)
     if person:
         resp = requests.get(url, params=params)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(resp.json())
         person['email'] = resp.json()['email']
         person['score'] = resp.json()['score']
-        eh_logs.append(person)
 
-        return eh_logs, person
+        return person
     else:
-        return eh_logs, None
+        return None
 
 
 def check_if_call_is_unique(params, logs):
@@ -66,24 +71,34 @@ def check_if_call_is_unique(params, logs):
         return person
 
 
-if __name__ == '__main__':
+class PersonLookUpInfo():
+    """docstring for PersonLookUpInfo."""
+
+    base_url = "https://api.emailhunter.co/v1/generate?"
+
+    api_key = shared_functions.get_api_token("EmailHunter")
+    test_data = {"domain": "asanag.com",
+                 "first_name": "Dustin",
+                 "last_name": "Moskovitz"}
+    test_data["api_key"] = api_key
+    shared_functions.check_api_token(eh_get_email(test_data))
+
     shelf_file = shelve.open('EmailHunter')
     try:
         eh_logs = shelf_file['eh_logs']
     except KeyError:
         eh_logs = []
 
-    eh_base_url = "https://api.emailhunter.co/v1/generate?"
+    def __init__(self, person):
+        """Initialize PersonLookUpInfo."""
+        self.person = person
+        self.person['api_key'] = PersonLookUpInfo.api_key
+        self.logs = PersonLookUpInfo.logger(self.person)
+        self.email = eh_get_email(self.person)
 
-    api_params_test = {
-        "api_key": "f92e50737d8056c27c09596d4b2d8bcf579aa9c6",
-        "domain": "asanag.com",
-        "first_name": "Dustin",
-        "last_name": "Moskovitz"}
-    test = eh_get_email(
-        url=eh_base_url,
-        params=api_params_test,
-        logs=eh_logs)
-
-    shelf_file['eh_logs'] = test[0]
-    print(test[1])
+    def logger(email):
+        """Record info to avoid calling the API twice for the same person."""
+        if email:
+            logs = PersonLookUpInfo.eh_logs
+            logs.append(email[0])
+            PersonLookUpInfo.shelf_file['eh_logs'] = logs
