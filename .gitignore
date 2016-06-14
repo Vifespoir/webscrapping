@@ -1,0 +1,15 @@
+# Ignore everything
+*
+
+# But not these files...
+!.gitignore
+!api_scrapper.py
+!EmailHunter_get_email.py
+!ProductHunt_get_makers.py
+!shared_functions.py
+!README.md
+!__init__.py
+# etc...
+
+# ...even if they are in subdirectories
+#!*/
