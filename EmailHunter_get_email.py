@@ -11,6 +11,7 @@ import pprint
 import shelve
 import re
 import shared_functions
+import json
 
 
 class PersonLookUpInfo():
@@ -45,8 +46,13 @@ class PersonLookUpInfo():
 
     def store_logs():
         """Record info to avoid calling the API twice for the same person."""
-        print(PersonLookUpInfo.eh_logs)
-        PersonLookUpInfo.shelf_file['eh_logs'] = PersonLookUpInfo.eh_logs
+        pp = pprint.PrettyPrinter(indent=4)
+        pp.pprint(PersonLookUpInfo.eh_logs)
+        eh_logs = PersonLookUpInfo.eh_logs
+        eh_logs = [json.dumps(item, sort_keys=True) for item in eh_logs]
+        eh_logs = set(eh_logs)
+        eh_logs = [json.loads(item) for item in eh_logs]
+        PersonLookUpInfo.shelf_file['eh_logs'] = eh_logs
 
     def test(self):
         """Test the class."""
@@ -67,40 +73,29 @@ class PersonLookUpInfo():
         Additionally requires logs to avoid to call twice the API with the same
         parameters.
         """
-        check_if_unique = self.check_if_call_is_unique()
+        if self.params["first_name"]:
+            check_if_unique = self.check_if_call_is_unique()
+            if check_if_unique:
+                s = requests.Session()
+                a = requests.adapters.HTTPAdapter(max_retries=10)
+                s.mount('http://', a)
 
-        print("    -2     ")
-        print(check_if_unique)
-        print("    -1     ")
-
-        if check_if_unique and self.params["first_name"]:
-            s = requests.Session()
-            a = requests.adapters.HTTPAdapter(max_retries=10)
-            s.mount('http://', a)
-
-            resp = s.get(self.base_url, params=self.params)
-            pp = pprint.PrettyPrinter(indent=4)
-            pp.pprint(resp.json())
-            print("    0     ")
-            try:
-                print("    1     ")
-                self.person['email'] = resp.json()['email']
-                print("    2     ")
-                self.person['score'] = resp.json()['score']
-                print("    3     ")
-                return True
-            except KeyError as e:
-                print("Key error: ", e)
+                resp = s.get(self.base_url, params=self.params)
+                pp = pprint.PrettyPrinter(indent=4)
+                pp.pprint(resp.json())
+                try:
+                    self.person['email'] = resp.json()['email']
+                    self.person['score'] = resp.json()['score']
+                    return True
+                except KeyError:
+                    return False
+                finally:
+                    self.person.pop("api_key")
+                    PersonLookUpInfo.eh_logs.append(self.person)
+            else:
                 return False
-            finally:
-                print(self.person)
-                self.person.pop("api_key")
-                print("    4     ")
-                PersonLookUpInfo.eh_logs.append(self.person)
-                print("    5     ")
         else:
-            print("No name...")
-            return False
+            print("\nNo Name")
 
     def check_if_call_is_unique(self):
         """Check parameters against logs return a person or None."""
@@ -108,18 +103,15 @@ class PersonLookUpInfo():
         intersect = set()
 
         for log in self.eh_logs:
-            print("    6     ")
             intersect = set(person.items()).intersection(set(log.items()))
             if len(intersect) >= 1:
                 intersect = dict(intersect)
-                print('\nIntersect')
                 break
 
         if len(intersect) == 3:
             print('\nEntry found')
             self.person = log
-            self.params
-            return False
+            PersonLookUpInfo.eh_logs.append(self.person)
         elif len(intersect) >= 1:
             try:
                 intersect["first_name"]
@@ -127,7 +119,7 @@ class PersonLookUpInfo():
             except KeyError:
                 return True
 
-            print('Entry found')
+            print('\nEntry found')
             print(log, '\n', person)
             check = re.match('(y|Y)',
                              input('Look up this person again? (y/n)'))

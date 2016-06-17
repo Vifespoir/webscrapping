@@ -120,7 +120,6 @@ def csv_writer(data, file_location, nb_of_posts):
                 str(email_request.person["last_name"]),
                 str(dataset_edit["email"])))
 
-    print(PersonLookUpInfo.eh_logs)
     PersonLookUpInfo.store_logs()
 
     error_count = 1
