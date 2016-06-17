@@ -104,12 +104,24 @@ def csv_writer(data, file_location, nb_of_posts):
         person["domain"] = dataset_edit["url"]
         person["first_name"] = dataset_edit["maker"]
         person["last_name"] = dataset_edit["maker lastname"]
-        dataset_edit["email"] = PersonLookUpInfo.email
+
+        email_request = PersonLookUpInfo(person)
+        if email_request.email:
+            dataset_edit["email"] = email_request.person["email"]
+        else:
+            dataset_edit["email"] = None
 
         writer.writerow(dataset_edit)
 
         sys.stdout.write(  # progress
-            '\rProgress: {:.2f}%'.format((float(counter)/nb_of_posts)*100))
+            '\rProgress: {:.2f}%   {:20}  {:20}  {:20}'.format(
+                (float(counter)/nb_of_posts)*100,
+                str(email_request.person["first_name"]),
+                str(email_request.person["last_name"]),
+                str(dataset_edit["email"])))
+
+    print(PersonLookUpInfo.eh_logs)
+    PersonLookUpInfo.store_logs()
 
     error_count = 1
     for e in error:  # data_formatter error log
@@ -124,6 +136,7 @@ def csv_writer(data, file_location, nb_of_posts):
 
 if __name__ == '__main__':
     data, topic_str, posts = generate_ph_data()
+    print("Generate ProductHunt data finished!")
 
     cwd = os.getcwd()  # getting current working directory
     file_location = cwd + '/' + topic_str + '.csv'

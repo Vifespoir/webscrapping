@@ -7,7 +7,6 @@ posts of this topic.
 
 # importing libraries
 import requests
-import time  # for sleep function
 import sys
 import tldextract  # to extract main domain address
 import pprint
@@ -60,7 +59,6 @@ class ProductHunterAPI:
                            headers=self.headers)  # request ProductHunt
         req.raise_for_status()
         resp = req.json()
-        time.sleep(0.2)  # sleep 0.2 second between two requests
         return resp
 
     def test(self):
@@ -77,27 +75,27 @@ def get_topics(topic_request):
 
     try:
         topic_request.topics = ProductHunterAPI.shelf_file['ph topics']
-    except AttributeError:
-        topic_request.topics = {}
+    except KeyError:
         topic_request.topic_id = 0
         topic_request.counter = 0
+        topic_request.topics = {}
+
+    for topic in topic_request.request()["topics"]:
+        topic_request.topics[topic["name"].lower()] = topic
+
+    max_id = max([topic["id"] for topic in topic_request.topics.values()])
+    topic_request.params["newer"] = max_id
+
+    ProductHunterAPI.shelf_file['ph topics'] = topic_request.topics
 
     if topic_request.topic_str in topic_request.topics.keys():
-        topic_request.topic_id = topic_request.topics[topic_request.topic_str]
+        topic_request.topic_id = \
+            topic_request.topics[topic_request.topic_str]["id"]
 
     # recursive loop which stops on two conditions: no more results, ID found
     if topic_request.topic_id == 0:
         topic_request.counter += 1  # inform of the progress with a counter
         sys.stdout.write('\rNot in page {:3}'.format(topic_request.counter))
-
-        topics = topic_request.request()
-        max_id = max([topic['id'] for topic in topic_request.topics])
-        topic_request.params["newer"] = max_id
-
-        for topic in topics["topics"]:
-            topic_request.topics[topic] = topic["id"]
-
-        ProductHunterAPI.shelf_file['ph topics'] = topic_request.topics
 
         return get_topics(topic_request)
 
@@ -109,7 +107,7 @@ def get_topics(topic_request):
         pp = pprint.PrettyPrinter(indent=4)  # setting up pprint
         print()
         try:  # print the description of the topic, prevent charmap exceptions
-            pp.pprint(topic)
+            pp.pprint(topic_request.topics[topic_request.topic_str])
         except UnicodeEncodeError:
             pass
         return topic_request.topic_id
@@ -160,15 +158,16 @@ def url_extractor(redirect_url):
     # set headers to a browser value
     headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_4) A\
     ppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36'}
-    req = requests.get(redirect_url, headers=headers)  # find final url
+    s = requests.Session()
+    a = requests.adapters.HTTPAdapter(max_retries=10)
+    s.mount('http://', a)
 
+    req = s.get(redirect_url, headers=headers)  # find final url
     try:  # capture URL Errors
         url_redirected = req.url
         extracted_url = tldextract.extract(url_redirected).registered_domain
-    except requests.error.HTTPError as e:
-        extracted_url = e  # set the error as the extracted_url
-    except requests.error.URLError as e:
-        extracted_url = e  # set the error as the extracted_urlUn
+    except ConnectionError:
+        extracted_url = "ERROR"  # set the error as the extracted_url
 
     return extracted_url
 
@@ -185,7 +184,8 @@ def generate_ph_data():
 
     topic_request = ProductHunterAPI(endpoint='topics/?')
     topic_request.topic_str = input(  # get a topic string
-        'From which topic do you want to retrieve posts?    ')
+        'From which topic do you want to retrieve posts?    ').lower()
+
     get_topics(topic_request)
     posts_request = ProductHunterAPI(  # get posts from specific topic endpoint
         endpoint='posts/all?search[topic]=' + str(topic_request.topic_id))

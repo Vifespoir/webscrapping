@@ -9,6 +9,7 @@
 !shared_functions.py
 !README.md
 !__init__.py
+!shelve_reader.py
 # etc...
 
 # ...even if they are in subdirectories
