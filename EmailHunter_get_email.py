@@ -7,65 +7,66 @@ last name and a domain name.
 """
 # importing libraries
 import requests
-import pprint
 import shelve
-import re
 import shared_functions
-import json
+import logging
 
 
-class PersonLookUpInfo():
+logging.basicConfig(
+    level=logging.DEBUG, format=' %(asctime)s - %(levelname)s - %(message)s')
+
+
+class EmailHunterAPI():
     """docstring for PersonLookUpInfo."""
 
     base_url = "https://api.emailhunter.co/v1/generate?"
-
-    shelf_file = shelve.open('EmailHunter')
-    try:
-        eh_logs = shelf_file['eh_logs']
-    except KeyError:
-        eh_logs = []
+    test_passed = False
 
     def __init__(self, person):
         """Initialize PersonLookUpInfo."""
+        assert isinstance(person, dict),\
+            'Dictionary expected, wrong input: %s' % person
         self.get_api_token()
         self.person = person
-        self.params = self.set_params()
-        self.email = self.eh_get_email()
+        self.id = ''.join([str(v) for k, v in self.person.items()])
+        assert self.id
+        logging.debug('EmailHunterAPI Initialized')
+        logging.debug('EmailHunterAPI person: %s' % self.person)
 
     def set_params(self):
-        self.params = self.person
-        self.params['api_key'] = PersonLookUpInfo.api_key
-        return self.params
+        """Add the API token to form complete parameters."""
+        logging.debug('EmailHunterAPI.set_params Started')
+        self.params = self.person.copy()
+        self.params['api_key'] = EmailHunterAPI.api_key
+        logging.debug('EmailHunterAPI.set_params params set')
 
     def get_api_token(self):
-        try:
-            self.api_key
-        except:
-            PersonLookUpInfo.api_key =\
-                shared_functions.get_api_token("EmailHunter")
-
-    def store_logs():
-        """Record info to avoid calling the API twice for the same person."""
-        pp = pprint.PrettyPrinter(indent=4)
-        pp.pprint(PersonLookUpInfo.eh_logs)
-        eh_logs = PersonLookUpInfo.eh_logs
-        eh_logs = [json.dumps(item, sort_keys=True) for item in eh_logs]
-        eh_logs = set(eh_logs)
-        eh_logs = [json.loads(item) for item in eh_logs]
-        PersonLookUpInfo.shelf_file['eh_logs'] = eh_logs
+        """Obtain the API token and test if it works."""
+        logging.debug('EmailHunterAPI.get_api_token Started')
+        EmailHunterAPI.api_key =\
+            shared_functions.get_api_token('EmailHunter')
+        if not self.test_passed:
+            logging.debug('EmailHunterAPI.get_api_token wrong API token')
+            self.test()
+            self.get_api_token()
+        else:
+            logging.debug(
+                'EmailHunterAPI.get_api_token: %s' % 'correct API token')
 
     def test(self):
         """Test the class."""
-        self.person = {"domain": "asana.com", "first_name": "Dustin",
-                       "last_name": "Moskovitz"}
-        self.params
-        try:
-            self.email
-            self.store_logs()
-        except:
-            print("Test unsuccessful")
+        logging.debug('EmailHunterAPI.test Started')
+        params = {"domain": "asana.com", "first_name": "Dustin",
+                  "last_name": "Moskovitz"}
+        params['api_key'] = self.api_key
+        resp = requests.get(self.base_url, params=params)
+        resp.raise_for_status()
+        print(resp.json()['email'])
+        logging.debug('EmailHunterAPI.test Successful')
+        EmailHunterAPI.test_passed = True
 
-    def eh_get_email(self):
+
+    def get_email(self):
         """Call email hunter, return an email.
 
         Requires the base EmailHunter url & the parameters to be added to the
@@ -73,61 +74,50 @@ class PersonLookUpInfo():
         Additionally requires logs to avoid to call twice the API with the same
         parameters.
         """
-        if self.params["first_name"]:
-            check_if_unique = self.check_if_call_is_unique()
-            if check_if_unique:
-                s = requests.Session()
-                a = requests.adapters.HTTPAdapter(max_retries=10)
-                s.mount('http://', a)
+        logging.debug('EmailHunterAPI.get_email Started')
+        eh_keys = ['domain', 'first_name', 'last_name']
+        assert isinstance(self.person, dict) is True, 'not a dict'
+        c_keys = [k for k in self.person.keys()]
+        assert isinstance(c_keys, list) is True, 'not a list'
+        c_keys.sort()
+        logging.debug('EmailHunterAPI.get_email keys sort %s' % c_keys)
+        assert eh_keys == c_keys, 'Invalid request: {}\nKey needed: {}'.format(
+                '   '.join(c_keys), '   '.join(eh_keys))
+        self.set_params()
+        self.person.setdefault('email', None)
+        self.person.setdefault('score', None)
 
-                resp = s.get(self.base_url, params=self.params)
-                pp = pprint.PrettyPrinter(indent=4)
-                pp.pprint(resp.json())
-                try:
-                    self.person['email'] = resp.json()['email']
-                    self.person['score'] = resp.json()['score']
-                    return True
-                except KeyError:
-                    return False
-                finally:
-                    self.person.pop("api_key")
-                    PersonLookUpInfo.eh_logs.append(self.person)
-            else:
-                return False
+        emailsLogs = EmailHunterLogs('emails')
+
+        if self.id in emailsLogs.data.keys():
+            logging.debug('EmailHunterAPI.get_email email found')
         else:
-            print("\nNo Name")
-
-    def check_if_call_is_unique(self):
-        """Check parameters against logs return a person or None."""
-        person = self.params.copy()
-        intersect = set()
-
-        for log in self.eh_logs:
-            intersect = set(person.items()).intersection(set(log.items()))
-            if len(intersect) >= 1:
-                intersect = dict(intersect)
-                break
-
-        if len(intersect) == 3:
-            print('\nEntry found')
-            self.person = log
-            PersonLookUpInfo.eh_logs.append(self.person)
-        elif len(intersect) >= 1:
+            logging.debug('EmailHunterAPI.get_email email not found')
+            resp = requests.get(self.base_url, params=self.params)
+            # pp = pprint.PrettyPrinter(indent=4)
+            # pp.pprint(resp.json())
             try:
-                intersect["first_name"]
-                intersect["last_name"]
+                self.person['email'] = resp.json()['email']
+                self.person['score'] = resp.json()['score']
             except KeyError:
-                return True
+                self.person['email'] = None
+                self.person['email'] = None
+                logging.warning('EmailHunterAPI.get_email Invalid request:\
+                    "%s"' % self.person)
+            logging.debug('EmailHunterAPI.get_email Email: "%s"'
+                          % self.person['email'])
+            emailsLogs.data[self.id] = self.person
 
-            print('\nEntry found')
-            print(log, '\n', person)
-            check = re.match('(y|Y)',
-                             input('Look up this person again? (y/n)'))
-            try:
-                check.groups()
-                return True
-            except AttributeError as e:
-                print(e)
-                return False
-        else:
-            return True
+        emailsLogs.store_logs(emailsLogs.data)
+
+
+class EmailHunterLogs(shared_functions.WebscrappingLogs):
+    """docstring for EmailHunterLogs."""
+
+    shelf_file = shelve.open('EmailHunter')
+
+
+if __name__ == '__main__':
+    etienne = {"domain": "asana.com", "first_name": "Dustin",
+               "last_name": "Moskovitz"}
+    test = EmailHunterAPI(etienne)

@@ -5,138 +5,111 @@ import os  # to create output in the script directory
 import sys
 import csv
 from ProductHunt_get_makers import generate_ph_data
-from EmailHunter_get_email import PersonLookUpInfo
+from EmailHunter_get_email import EmailHunterAPI
+import pprint
 
 
-def data_formatter(dataset, error):
+pp = pprint.PrettyPrinter(indent=4)
+
+
+def print(text):
+    return pp.pprint(text)
+
+
+def ProductHunter_to_EmailHunter(dataset):
     """Format each dataset into a smaller one containing important information.
 
     It captures two kind of errors: no makers and empty list of makers.
     It returns the extracted information and an error report.
     """
-    try:  # catch exceptions
-        dataset['makers'] = {
-            x['name']: x['headline'] for x in dataset['makers']}
+    for data in dataset:
+        format_name = format_names(dataset[data]['name'])
+        dataset[data]['first_name'] = format_name[0]
+        dataset[data]['last_name'] = format_name[1]
+        dataset[data]['completeness'] = format_name[3]
+        dataset[data]['domain'] = dataset[data].pop("url")
 
-        for maker in dataset['makers']:  # create a dataset per maker
-            name = maker.rsplit()  # break down maker names
-            # assign maker, maker lastname & track data completeness
-            if len(name) == 2:
-                dataset_edit = {
-                    'maker': name[0],
-                    'maker lastname': name[1],
-                    'completeness': 'Full'}
-            # when doubt assign maker & concatenate the rest in maker lastname
-            elif len(name) > 2:
-                dataset_edit = {
-                    'maker': name[0],
-                    'maker lastname': ' '.join(name[1:]),
-                    'completeness': 'Check the name'}
-            # when only one word set it in maker
+        if format_name[2]:
+            data_cp = dataset[data].copy()
+            eh_keys = ['first_name', 'last_name', 'domain']
+            data_cp = {k: v for k, v in data_cp.items() if k in eh_keys}
+            email_resp = get_email(data_cp)
+            if email_resp[0] is not None:
+                print(email_resp)
+                dataset[data]['email'] = email_resp[0]
+                dataset[data]['score'] = email_resp[1]
             else:
-                dataset_edit = {
-                    'maker': ' '.join(name),
-                    'maker lastname': None,
-                    'completeness': 'Invalid name'
-                    }
-            # add important keys to the dataset
-            dataset_edit['name'] = dataset['name']
-            dataset_edit['url'] = dataset['url']
-            dataset_edit['headline'] = dataset['makers'][maker]
+                data_cp['domain'] = dataset[data]['website_url']
+                data_cp.pop('email')
+                data_cp.pop('score')
+                email_resp = get_email(data_cp)
 
-    except KeyError as e:  # resolve no makers exception
-        dataset_edit = {
-            'maker': None,
-            'maker lastname': None,
-            'completeness': 'No name',
-            'name': dataset['name'],
-            'url': dataset['url'],
-            'headline': None
-            }
-        error.setdefault(str(e), 0)  # create KeyError in error if not present
-        error[str(e)] += 1
+                dataset[data]['email'] = email_resp[0]
+                dataset[data]['score'] = email_resp[1]
+        else:
+            dataset[data]['email'] = None
+            dataset[data]['score'] = None
 
-    finally:
-        try:  # catch the empty makers list exception
-            type(dataset_edit)
-        except UnboundLocalError as e:  # resolve the empty makers list
-            dataset_edit = {
-                'maker': None,
-                'maker lastname': None,
-                'completeness': 'No name',
-                'name': dataset['name'],
-                'url': dataset['url'],
-                'headline': None}
-            error.setdefault(str(e), 0)  # create DictKey if not present
-            error[str(e)] += 1
-
-        return dataset_edit, error
+    return dataset
 
 
-def csv_writer(data, file_location, nb_of_posts):
+def get_email(data):
+    email_request = EmailHunterAPI(data)
+    email_request.get_email()
+    email = email_request.person['email']
+    score = email_request.person['score']
+    print(str(email) + '  ' + str(score))
+    return email, score
+
+
+def format_names(name):
+    name = name.rsplit()  # break down maker name
+    if len(name) == 2:  # assign maker and maker lastname
+        return (name[0], name[1], True, 'Full')
+    elif len(name) > 2:  # first word as maker, the rest as lastname
+        return (name[0], name[1:], True, 'Check the name')
+    else:  # when only one word set it in maker
+        return (name[0], None, False, 'Invalid name')
+
+
+def csv_writer(dataset, file_location):
     """Write the data into a file. Show the progression."""
     counter = 0  # counter to show the progress
-    error = {}  # creating dictionary for error log (used in data_formatter())
-    print('Creating csv file at the script root: ' + file_location,
+    print('Creating csv file at the script root: ' + file_location +
           'with: \'w\' privileges')
     csvfile = open(file_location, 'w', newline='')
-    fieldnames = ['name',  # fieldnames they match the one in data_formatter
-                  'url',
-                  'maker',
-                  'maker lastname',
+    fieldnames = ['company',  # fieldnames they match the one in data_formatter
+                  'domain',
+                  'first_name',
+                  'last_name',
                   'email',
+                  'score',
                   'headline',
-                  'completeness']
+                  'completeness',
+                  'website_url',
+                  'twitter_username']
+
     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)  # set the writer
     writer.writeheader()  # write the headers
-    posts_without_makers = 0  # set variable to track posts without markers
 
-    for dataset in data:  # loop though the data
-        try:  # catch empty dataset error
-            dataset is not None
-            dataset = dataset[0]
-        except UnboundLocalError:
-            posts_without_makers += dataset[1]  # increment post without marker
-        counter += 1  # increment the progress
-        dataset_edit, error = data_formatter(dataset, error)  # format dataset
-
-        person = {}  # get the email
-        person["domain"] = dataset_edit["url"]
-        person["first_name"] = dataset_edit["maker"]
-        person["last_name"] = dataset_edit["maker lastname"]
-
-        email_request = PersonLookUpInfo(person)
-        if email_request.email:
-            dataset_edit["email"] = email_request.person["email"]
-        else:
-            dataset_edit["email"] = None
-
-        writer.writerow(dataset_edit)
-
+    for data in dataset.data:  # loop though the data
         sys.stdout.write(  # progress
-            '\rProgress: {:.2f}%   {:20}  {:20}  {:20}'.format(
-                (float(counter)/nb_of_posts)*100,
-                str(email_request.person["first_name"]),
-                str(email_request.person["last_name"]),
-                str(dataset_edit["email"])))
-
-    PersonLookUpInfo.store_logs()
-
-    error_count = 1
-    for e in error:  # data_formatter error log
-        print('\rERROR {}\n{}\nNumber of occurence: {}'
-              .format(error_count, e, error[e]))
-        error_count += 1
-
-    print('\rERROR {}\nposts without makers\nNumber of occurence: {}'
-          .format(error_count, posts_without_makers))  # no makers error
-    csvfile.close()  # close the file
+            '\r{:20}  {:20}  {:20}   Progress: {:.2f}%'.format(
+                str(dataset.data[data]["first_name"]),
+                str(dataset.data[data]["last_name"]),
+                str(dataset.data[data]["email"]),
+                (float(counter)/len(dataset.data))*100))
+        dataset.data[data].pop('id')
+        dataset.data[data].pop('name')
+        writer.writerow(dataset.data[data])
+        counter += 1  # increment the progress
 
 
 if __name__ == '__main__':
-    data, topic_str, posts = generate_ph_data()
+    data, topic_str = generate_ph_data()
     print("Generate ProductHunt data finished!")
 
     cwd = os.getcwd()  # getting current working directory
     file_location = cwd + '/' + topic_str + '.csv'
-    csv_writer(data, file_location, len(posts))  # write the data
+    ProductHunter_to_EmailHunter(data.data)
+    csv_writer(data, file_location)  # write the data
