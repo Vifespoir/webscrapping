@@ -6,14 +6,6 @@ import sys
 import csv
 from ProductHunt_get_makers import generate_ph_data
 from EmailHunter_get_email import EmailHunterAPI
-import pprint
-
-
-pp = pprint.PrettyPrinter(indent=4)
-
-
-def print(text):
-    return pp.pprint(text)
 
 
 def ProductHunter_to_EmailHunter(dataset):
@@ -54,6 +46,7 @@ def ProductHunter_to_EmailHunter(dataset):
 
 
 def get_email(data):
+    """Use EmailHunter_get_email module to find an email from data."""
     email_request = EmailHunterAPI(data)
     email_request.get_email()
     email = email_request.person['email']
@@ -63,6 +56,7 @@ def get_email(data):
 
 
 def format_names(name):
+    """Take a name and return a first & last name version of it."""
     name = name.rsplit()  # break down maker name
     if len(name) == 2:  # assign maker and maker lastname
         return (name[0], name[1], True, 'Full')

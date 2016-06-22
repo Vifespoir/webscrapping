@@ -65,7 +65,6 @@ class EmailHunterAPI():
         logging.debug('EmailHunterAPI.test Successful')
         EmailHunterAPI.test_passed = True
 
-
     def get_email(self):
         """Call email hunter, return an email.
 

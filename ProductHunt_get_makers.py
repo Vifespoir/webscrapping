@@ -89,6 +89,7 @@ class ProductHunterAPI:
             raise ProductHuntErrors("Test unsuccessful")
 
     def set_newer_to_max_id(self, ClassVariable):
+        """Look in ClassVariable for the highest id and returns it."""
         assert isinstance(ClassVariable, dict) is True, 'Dictionary expected'
         try:
             max_id = max([ClassVariable[item]['id'] for item in ClassVariable])
@@ -106,6 +107,7 @@ class ProductHunterLogs(shared_functions.WebscrappingLogs):
 
 
 def search_topic(data, search_log, topic_str):
+    """Search for topic_str in data, store topics in search_log."""
     logging.debug('search_topic Started')
     topic_id = 0
     if isinstance(data, ProductHunterLogs):
@@ -156,10 +158,10 @@ def get_topics(query, prevNewer=None):
         return query.topic_id
 
 
-def get_posts(query, prevNewer=None, counter=0):
+def get_posts(query, topic_str, prevNewer=None, counter=0):
     """Look up a topic and fetch all posts from this topic."""
     logging.debug('get_posts Checking for posts in logs')
-    postsLogs = ProductHunterLogs('posts')
+    postsLogs = ProductHunterLogs(topic_str + '_posts')
     query.set_newer_to_max_id(postsLogs.data)
 
     for post in query.request().json()['posts']:
@@ -173,7 +175,7 @@ def get_posts(query, prevNewer=None, counter=0):
         prevNewer = query.params['newer']
         counter += len(postsLogs.data)  # posts nb
         logging.debug('get_posts: %s posts fetched' % counter)
-        return get_posts(query, prevNewer, counter)
+        return get_posts(query, topic_str, prevNewer, counter)
 
     else:  # when no more results return the posts
         counter = len(postsLogs.data)
@@ -181,10 +183,10 @@ def get_posts(query, prevNewer=None, counter=0):
         return postsLogs
 
 
-def extract_makers(posts):
+def extract_makers(posts, topic_str):
     """Filter the posts based on maker_inside, ignore post with no maker."""
     logging.debug('extract_makers Start')
-    makersLogs = ProductHunterLogs('makers')
+    makersLogs = ProductHunterLogs(topic_str + '_makers')
     cntr = [0, 0, len(posts.data)]
 
     for post in posts.data:  # loop through the posts
@@ -239,9 +241,9 @@ def generate_ph_data():
     get_topics(topic_request)
     posts_request = ProductHunterAPI(  # get posts from specific topic endpoint
         endpoint='posts/all?search[topic]=' + str(topic_request.topic_id))
-    raw_posts = get_posts(posts_request)
+    raw_posts = get_posts(posts_request, topic_request.topic_str)
     # format the data for writing
-    data = extract_makers(raw_posts)
+    data = extract_makers(raw_posts, topic_request.topic_str)
 
     return data, topic_request.topic_str
 
